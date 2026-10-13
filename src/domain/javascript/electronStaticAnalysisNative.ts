@@ -17,6 +17,12 @@ import {
   propertyName,
   semanticStaticPropertyKey,
 } from "./javascriptAstValues.js";
+import {
+  isTypeOnlyExportDeclaration,
+  isTypeOnlyExportSpecifier,
+  isTypeOnlyImportDeclaration,
+  isTypeOnlyImportSpecifier,
+} from "./javascriptModuleDeclaration.js";
 import type { JavaScriptFindingContext } from "./javascriptStaticAnalysisState.js";
 
 interface NativeBindingInput {
@@ -46,10 +52,12 @@ const inspectImport = (
   node: t.ImportDeclaration,
   context: JavaScriptFindingContext,
 ): void => {
+  if (isTypeOnlyImportDeclaration(node)) return;
   if (!isNativeSpecifier(node.source.value, "import")) return;
   const members = node.specifiers.flatMap((specifier) => {
     if (t.isImportDefaultSpecifier(specifier)) return ["default"];
     if (t.isImportNamespaceSpecifier(specifier)) return [];
+    if (isTypeOnlyImportSpecifier(specifier)) return [];
     return [propertyName(specifier.imported)];
   });
   addBinding({
@@ -73,11 +81,15 @@ const inspectNamedExport = (
   if (
     node.source === null ||
     node.source === undefined ||
+    isTypeOnlyExportDeclaration(node) ||
     !isNativeSpecifier(node.source.value, "import")
   )
     return;
   const members = node.specifiers.flatMap((specifier) => {
-    if (t.isExportSpecifier(specifier)) return [propertyName(specifier.local)];
+    if (t.isExportSpecifier(specifier))
+      return isTypeOnlyExportSpecifier(specifier)
+        ? []
+        : [propertyName(specifier.local)];
     if (t.isExportDefaultSpecifier(specifier)) return ["default"];
     return [];
   });
@@ -101,6 +113,7 @@ const inspectExportAll = (
 ): void => {
   if (
     node.source === undefined ||
+    isTypeOnlyExportDeclaration(node) ||
     !isNativeSpecifier(node.source.value, "import")
   )
     return;
