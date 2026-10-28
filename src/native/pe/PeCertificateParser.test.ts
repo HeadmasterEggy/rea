@@ -62,6 +62,7 @@ it("reads PE32 and PE32+ PKCS#7 certificate tables", () => {
     expect(report.entries[0]?.pkcs7?.signers[0]).toMatchObject({
       serial_hex: "11223344",
       subject_key_identifier_hex: null,
+      unsigned_attribute_oids: [],
     });
     expect(peCertificatesSchema.safeParse(report).success).toBe(true);
     expect(report.coverage).toEqual({
@@ -731,5 +732,40 @@ it("decodes UniversalString names as UTF-32BE", () => {
   );
   expect(() => parseCertificate(broken)).toThrow(
     /UniversalString length is not a multiple of 4/u,
+  );
+});
+
+it.each([
+  "empty attributes",
+  "missing OID",
+  "missing SET",
+  "empty SET",
+  "extra field",
+])("rejects malformed unsigned attributes: %s", (kind) => {
+  const value = der(0x04, Buffer.from([1]));
+  const oid = der(0x06, Buffer.from([42, 3, 4]));
+  const attribute =
+    kind === "missing OID"
+      ? derSeq(value, derSet(value))
+      : kind === "missing SET"
+        ? derSeq(oid, value)
+        : kind === "empty SET"
+          ? derSeq(oid, derSet())
+          : kind === "extra field"
+            ? derSeq(oid, derSet(value), value)
+            : Buffer.alloc(0);
+  const signer = derSeq(
+    derInt(3),
+    der(0x80, Buffer.from([1])),
+    SHA256_ALG,
+    SHA256_ALG,
+    value,
+    der(0xa1, attribute),
+  );
+  const payload = contentInfo(
+    derSeq(derInt(1), derSet(SHA256_ALG), derSeq(DATA_OID), derSet(signer)),
+  );
+  expect(() => parse(peCertificateFixture(false, payload))).toThrow(
+    ArtifactReaderFailure,
   );
 });

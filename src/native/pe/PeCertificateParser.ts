@@ -40,6 +40,9 @@ const LIMITATIONS = [
   "PKCS#7 fields are decoded structurally; cryptographic validity remains unobserved.",
 ] as const;
 
+export const PE_UNSIGNED_ATTRIBUTE_CONTENT_LIMITATION =
+  "SignerInfo unsigned attribute OIDs are listed, but their values, timestamp tokens and nested signatures are not decoded.";
+
 const TELETEX_LIMITATION =
   "TeletexString values use OpenSSL's ISO-8859-1 compatibility mapping; this is not a full T.61 decoder.";
 
@@ -82,6 +85,7 @@ export const parsePeCertificates = (
   let at = 0;
   let examined = 0;
   let teletexStringCompatibilityUsed = false;
+  let unsignedAttributeContentsOmitted = false;
   while (at < table.length) {
     // Alignment padding sits inside the gap before the next 8-byte boundary.
     // Bytes that remain after that boundary are a short header, including
@@ -121,6 +125,9 @@ export const parsePeCertificates = (
           fail("WIN_CERTIFICATE has invalid PKCS#7 alignment padding.");
         payload = entryPayload.subarray(0, root.end);
         const parsed = parsePkcs7SignedData(root);
+        unsignedAttributeContentsOmitted ||= parsed.signers.some(
+          (signer) => signer.unsigned_attribute_oids.length > 0,
+        );
         teletexStringCompatibilityUsed ||=
           parsed.teletexStringCompatibilityUsed;
         pkcs7 = {
@@ -166,6 +173,7 @@ export const parsePeCertificates = (
             serial_hex: signer.serial_hex,
             subject_key_identifier_hex: signer.subject_key_identifier_hex,
             authenticated_attributes: signer.authenticated_attributes,
+            unsigned_attribute_oids: [...signer.unsigned_attribute_oids],
           })),
         };
       } catch (cause) {
@@ -206,12 +214,16 @@ export const parsePeCertificates = (
     },
     entries,
     coverage: {
-      status: "complete",
+      status: unsignedAttributeContentsOmitted ? "partial" : "complete",
       examined_entries: examined,
       certificates,
     },
-    limitations: teletexStringCompatibilityUsed
-      ? [...LIMITATIONS, TELETEX_LIMITATION]
-      : [...LIMITATIONS],
+    limitations: [
+      ...LIMITATIONS,
+      ...(teletexStringCompatibilityUsed ? [TELETEX_LIMITATION] : []),
+      ...(unsignedAttributeContentsOmitted
+        ? [PE_UNSIGNED_ATTRIBUTE_CONTENT_LIMITATION]
+        : []),
+    ],
   };
 };

@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect } from "vitest";
+import { PE_UNSIGNED_ATTRIBUTE_CONTENT_LIMITATION } from "../../src/native/pe/PeCertificateParser.js";
 import { toolContract } from "../../src/contracts/toolContracts.js";
 import {
   peCertificateFixture,
@@ -115,5 +116,43 @@ cliTest(
     expect(evidence.normalized_result.limitations).toContain(
       "TeletexString values use OpenSSL's ISO-8859-1 compatibility mapping; this is not a full T.61 decoder.",
     );
+  },
+);
+
+cliTest.for([false, true])(
+  "discloses undecoded unsigned attributes in PE32+ %s",
+  async (plus, { cli }) => {
+    const root = await createTestTempDirectory("rea-pe-cert-unsigned-cli-");
+    const path = join(root, "unsigned-attributes.exe");
+    const oids = [
+      [1, 3, 6, 1, 4, 1, 311, 3, 3, 1],
+      [1, 3, 6, 1, 4, 1, 311, 2, 4, 1],
+      [1, 2, 3, 4],
+    ];
+    await writeFile(
+      path,
+      peCertificateFixture(
+        plus,
+        pkcs7SignedDataFixture(undefined, undefined, undefined, oids),
+      ),
+    );
+    const response = await cli.run({
+      arguments: ["inspect-pe-certificates", path, "--json"],
+    });
+    expect(response.exitCode, response.stderr).toBe(0);
+    const report = toolContract("inspect_pe_certificates").outputSchema.parse(
+      response.json,
+    ).normalized_result;
+    expect(report.entries[0]?.pkcs7?.signers[0]).toMatchObject({
+      unsigned_attribute_oids: oids.map((oid) => oid.join(".")),
+    });
+    expect(report.limitations).toContain(
+      PE_UNSIGNED_ATTRIBUTE_CONTENT_LIMITATION,
+    );
+    expect(report.coverage).toEqual({
+      status: "partial",
+      examined_entries: 1,
+      certificates: 1,
+    });
   },
 );

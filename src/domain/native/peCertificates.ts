@@ -97,6 +97,12 @@ const signerInfoSchema = z.strictObject({
     .regex(/^[0-9a-f]*$/)
     .nullable(),
   authenticated_attributes: z.boolean(),
+  unsigned_attribute_oids: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Observed unsigned attribute OIDs in source order; values are not decoded. Empty means observed absent; omitted in older records.",
+    ),
 });
 
 const pkcs7Schema = z.strictObject({
@@ -139,7 +145,7 @@ export const peCertificatesSchema = z.strictObject({
     .nullable(),
   entries: z.array(certificateEntrySchema),
   coverage: z.strictObject({
-    status: z.literal("complete"),
+    status: z.enum(["complete", "partial"]),
     examined_entries: uint,
     certificates: uint,
   }),

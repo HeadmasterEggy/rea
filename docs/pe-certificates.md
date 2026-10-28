@@ -37,8 +37,18 @@ ranges and hashes exclude counted padding.
 For `WIN_CERTIFICATE` type 2 (PKCS#7 signedData) `pkcs7` contains digest
 algorithm OIDs, embedded X.509 serial/issuer/subject/validity fields, and
 signer identifier facts. A signer identified by subject key identifier reports
-that value as `subject_key_identifier_hex`. Other certificate types keep
-`pkcs7` null.
+that value as `subject_key_identifier_hex`. Each signer also reports
+`unsigned_attribute_oids` in source order, including unrecognized OIDs. An empty
+array means that no unsigned attributes were present; this field is omitted in
+older records, where that fact is unknown. Other certificate types keep `pkcs7`
+null.
+
+Unsigned attribute values are not decoded. These can contain timestamp tokens,
+legacy countersignatures or nested signatures, so their certificates, signer
+identities and timestamp times are not included in the outer lists. When such
+attributes are present, `coverage.status` is `partial` and the result states this
+limitation. Entry and certificate counts still describe the examined outer table
+and SignedData; they do not count content inside unsigned attributes.
 
 A missing table is observed absence of that directory. It is not proof the
 image is unsigned in every catalog or overlay sense.

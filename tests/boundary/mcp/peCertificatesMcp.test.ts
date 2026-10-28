@@ -1,11 +1,16 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect } from "vitest";
+import { advertisedSchemaErrors } from "../../fixtures/mcpAdvertisedSchemaValidity.js";
+import { PE_UNSIGNED_ATTRIBUTE_CONTENT_LIMITATION } from "../../../src/native/pe/PeCertificateParser.js";
 import { toolContract } from "../../../src/contracts/toolContracts.js";
 import { createServer } from "../../../src/server/createServer.js";
 import { createTestBinarySession } from "../../fixtures/binarySession.js";
 import { parseMcpToolError } from "../../fixtures/mcpToolError.js";
-import { peCertificateFixture } from "../../../src/native/pe/PeCertificates.fixture.js";
+import {
+  peCertificateFixture,
+  pkcs7SignedDataFixture,
+} from "../../../src/native/pe/PeCertificates.fixture.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { mcpTest, type TestMcp } from "../../support/mcp/mcpFixture.js";
 
@@ -65,6 +70,49 @@ mcpTest(
         code: "invalid_request",
         details: { operation: "inspect_pe_certificates" },
       });
+    } finally {
+      await session.close();
+    }
+  },
+);
+
+mcpTest(
+  "retains observed unsigned attribute OIDs and partial coverage",
+  async ({ mcp }) => {
+    const { client, session } = await connect(mcp);
+    try {
+      const advertised = (await client.listTools()).tools.find(
+        ({ name }) => name === "inspect_pe_certificates",
+      );
+      if (advertised === undefined)
+        throw new Error("PE certificate tool was not advertised");
+      expect(advertisedSchemaErrors([advertised])).toEqual([]);
+      const root = await createTestTempDirectory("rea-pe-cert-unsigned-mcp-");
+      const path = join(root, "unsigned-attributes.exe");
+      await writeFile(
+        path,
+        peCertificateFixture(
+          false,
+          pkcs7SignedDataFixture(undefined, undefined, undefined, [
+            [1, 3, 6, 1, 4, 1, 311, 3, 3, 1],
+          ]),
+        ),
+      );
+      const response = await client.callTool({
+        name: "inspect_pe_certificates",
+        arguments: { path },
+      });
+      expect(response.isError, JSON.stringify(response.content)).not.toBe(true);
+      const report = toolContract("inspect_pe_certificates").outputSchema.parse(
+        response.structuredContent,
+      ).normalized_result;
+      expect(report.entries[0]?.pkcs7?.signers[0]).toMatchObject({
+        unsigned_attribute_oids: ["1.3.6.1.4.1.311.3.3.1"],
+      });
+      expect(report.coverage.status).toBe("partial");
+      expect(report.limitations).toContain(
+        PE_UNSIGNED_ATTRIBUTE_CONTENT_LIMITATION,
+      );
     } finally {
       await session.close();
     }

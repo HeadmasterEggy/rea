@@ -67,6 +67,7 @@ export const pkcs7SignedDataFixture = (
   commonName = "REA Fixture",
   organization = "REA Tests",
   signature = octet(Buffer.from("sig")),
+  unsignedAttributeOids: readonly (readonly number[])[] = [],
 ): Buffer => {
   const serial = Buffer.from([0x11, 0x22, 0x33, 0x44]);
   const subject = name(commonName, organization);
@@ -94,6 +95,21 @@ export const pkcs7SignedDataFixture = (
     algorithm(SHA256),
     algorithm(SHA256_RSA),
     signature,
+    ...(unsignedAttributeOids.length === 0
+      ? []
+      : [
+          context(
+            1,
+            concat(
+              ...unsignedAttributeOids.map((parts) =>
+                seq(
+                  oid(parts),
+                  set(octet(Buffer.from("opaque attribute value"))),
+                ),
+              ),
+            ),
+          ),
+        ]),
   );
   const signedData = seq(
     integer(1),

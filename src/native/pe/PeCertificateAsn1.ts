@@ -423,6 +423,7 @@ export interface ParsedSigner {
   readonly serial_hex: string | null;
   readonly subject_key_identifier_hex: string | null;
   readonly authenticated_attributes: boolean;
+  readonly unsigned_attribute_oids: readonly string[];
 }
 
 const signerIdentifier = (
@@ -464,6 +465,27 @@ const signerIdentifier = (
   );
 };
 
+/** Read the implicit unsignedAttrs SET without interpreting AttributeValue contents. */
+const unsignedAttributeOids = (node: Asn1BerNode): string[] => {
+  if (node.children.length === 0)
+    return fail("SignerInfo unsignedAttrs contains no Attribute.");
+  return node.children.map((attribute) => {
+    const fields = sequence(attribute, "SignerInfo unsigned Attribute");
+    const type = fields[0];
+    const values = fields[1];
+    if (
+      fields.length !== 2 ||
+      type?.tag !== 0x06 ||
+      values?.tag !== 0x31 ||
+      values.children.length === 0
+    )
+      return fail(
+        "SignerInfo unsigned Attribute requires an OID and a non-empty SET of values.",
+      );
+    return decodeOid(type.content);
+  });
+};
+
 const parseSigner = (
   node: Asn1BerNode,
   names: DecodedNameBudget,
@@ -495,7 +517,10 @@ const parseSigner = (
   if (signature.content.length === 0)
     return fail("SignerInfo signature OCTET STRING is empty.");
   cursor += 2;
-  if (children[cursor]?.tag === 0xa1) cursor += 1;
+  const unsigned = children[cursor];
+  const unsignedOids =
+    unsigned?.tag === 0xa1 ? unsignedAttributeOids(unsigned) : [];
+  if (unsigned?.tag === 0xa1) cursor += 1;
   if (cursor !== children.length)
     return fail("SignerInfo has unexpected trailing fields.");
   return {
@@ -505,6 +530,7 @@ const parseSigner = (
     serial_hex,
     subject_key_identifier_hex,
     authenticated_attributes: authenticated,
+    unsigned_attribute_oids: unsignedOids,
   };
 };
 
