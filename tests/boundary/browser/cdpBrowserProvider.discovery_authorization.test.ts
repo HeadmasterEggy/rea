@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { CdpBrowserProvider } from "../../../src/browser/CdpBrowserProvider.js";
+import {
+  CdpBrowserProvider,
+  CDP_TARGET_LIST_COVERAGE,
+  cdpTargetTransportExclusionLimitation,
+} from "../../../src/browser/CdpBrowserProvider.js";
 import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
 import {
   inspectWebPageInputSchema,
@@ -151,7 +155,7 @@ describe("CdpBrowserProvider: discovery authorization 1", () => {
       "allowed-page-with-socket",
     ]);
     expect(listed.value.limitations).toContain(
-      "1 otherwise allowed page target(s) lacked a validated direct CDP WebSocket and were excluded.",
+      cdpTargetTransportExclusionLimitation(1),
     );
 
     const inspected = await provider.inspectPage(
@@ -218,20 +222,17 @@ describe("CdpBrowserProvider: listing coverage", () => {
       });
       expect(listed.value.limitations).toContain(
         filtered
-          ? "Only page targets with a validated CDP transport whose current URL matches an explicitly requested exact origin are listed."
-          : "All page targets with supported HTTP(S) URLs and a validated CDP transport are listed.",
+          ? CDP_TARGET_LIST_COVERAGE.exactOrigin
+          : CDP_TARGET_LIST_COVERAGE.allOrigins,
       );
       const excluded = (filtered ? 0 : 1) + (missingSocket ? 1 : 0);
-      expect(
-        listed.value.limitations.filter((message) =>
-          message.includes("lacked a validated direct CDP WebSocket"),
+      const transportWarnings = listed.value.limitations.filter((message) =>
+        [1, 2].some(
+          (count) => message === cdpTargetTransportExclusionLimitation(count),
         ),
-      ).toEqual(
-        excluded === 0
-          ? []
-          : [
-              `${String(excluded)} otherwise allowed page target(s) lacked a validated direct CDP WebSocket and were excluded.`,
-            ],
+      );
+      expect(transportWarnings).toEqual(
+        excluded === 0 ? [] : [cdpTargetTransportExclusionLimitation(excluded)],
       );
       expect(browser.commands).toEqual([]);
     },
