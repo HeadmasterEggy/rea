@@ -50,6 +50,18 @@ const timelineEventSchema = z.object({
     .enum(["approved", "outside_policy", "unsupported"])
     .nullable(),
   detail: z.string().nullable(),
+  redirect_response: z
+    .object({
+      url: z.string().nullable(),
+      status: z.number().nullable(),
+      destination_scope: z
+        .enum(["approved", "outside_policy", "unsupported"])
+        .nullable(),
+    })
+    .optional()
+    .describe(
+      "Prior-hop response paired with this redirect. URL and status are retained only for an approved response origin; older records may omit this context.",
+    ),
 });
 
 /** Navigation-aware session result for external user actions. */

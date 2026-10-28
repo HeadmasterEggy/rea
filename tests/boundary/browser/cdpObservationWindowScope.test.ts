@@ -448,3 +448,93 @@ it("does not join an empty document request identity to a later loading failure"
     }),
   );
 });
+
+it.each([
+  "approved",
+  "outside_policy",
+  "unsupported",
+  "unknown",
+  "missing_status",
+  "leaves_scope",
+] as const)(
+  "keeps prior-hop response context within its own origin scope: %s",
+  async (scope) => {
+    const { browser, observation } = await observeDuringClockSampling(
+      (command, origin) =>
+        command.method !== "Performance.getMetrics"
+          ? undefined
+          : [
+              {
+                method: "Network.requestWillBeSent",
+                sessionId: command.sessionId,
+                params: {
+                  requestId: "paired-redirect",
+                  timestamp: 21,
+                  type: "Document",
+                  frameId: "frame-main",
+                  redirectResponse: {
+                    ...(scope === "unknown"
+                      ? {}
+                      : {
+                          url:
+                            scope === "outside_policy"
+                              ? "https://outside.invalid/private-prior"
+                              : scope === "unsupported"
+                                ? "file:///private-prior"
+                                : `${origin}/prior-hop`,
+                        }),
+                    ...(scope === "missing_status" ? {} : { status: 302 }),
+                    headers: {
+                      "x-private-response-header": "never-capture-this-header",
+                    },
+                  },
+                  request: {
+                    url:
+                      scope === "leaves_scope"
+                        ? "https://outside.invalid/next-hop"
+                        : `${origin}/next-hop`,
+                  },
+                },
+              },
+            ],
+    );
+    const approved =
+      scope === "approved" ||
+      scope === "missing_status" ||
+      scope === "leaves_scope";
+    expect(observation.timeline).toContainEqual(
+      expect.objectContaining({
+        type: "redirect",
+        request_id: "paired-redirect",
+        redirect_response: {
+          url: approved ? `${browser.allowedOrigin}/prior-hop` : null,
+          status: approved && scope !== "missing_status" ? 302 : null,
+          destination_scope: approved
+            ? "approved"
+            : scope === "unknown"
+              ? null
+              : scope,
+        },
+      }),
+    );
+    expect(observation.window.end_reason).toBe(
+      scope === "leaves_scope" ? "target_left_scope" : "window_elapsed",
+    );
+    expect(JSON.stringify(observation)).not.toContain("private-prior");
+    expect(JSON.stringify(observation)).not.toContain(
+      "never-capture-this-header",
+    );
+    if (!approved)
+      expect(observation.completeness.excluded).toContainEqual(
+        expect.objectContaining({
+          section: "timeline",
+          reason:
+            scope === "outside_policy"
+              ? "disallowed_origin"
+              : scope === "unsupported"
+                ? "unsupported_url"
+                : "unattributed_origin",
+        }),
+      );
+  },
+);

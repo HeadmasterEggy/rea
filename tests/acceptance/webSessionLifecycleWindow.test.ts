@@ -7,6 +7,31 @@ import { connectLocalToolsMcp } from "../fixtures/localToolsMcp.js";
 import { startFakeCdpBrowser } from "../fixtures/fakeCdpBrowser.js";
 import { cliTest } from "../support/cli/cliFixture.js";
 
+const redirectRequest = (
+  origin: string,
+  sessionId: string | undefined,
+  timestamp: number,
+) => ({
+  method: "Network.requestWillBeSent",
+  sessionId,
+  params: {
+    requestId:
+      timestamp === 19 ? "prior-window-redirect" : "current-window-redirect",
+    timestamp,
+    type: "Document",
+    frameId: "frame-main",
+    redirectResponse: {
+      url: `${origin}/prior-hop-${String(timestamp)}`,
+      status: 302,
+      headers: {
+        location: `${origin}/next-hop`,
+        "x-private": "excluded-response-header",
+      },
+    },
+    request: { url: `${origin}/next-hop`, method: "GET" },
+  },
+});
+
 cliTest.for(["CLI", "stdio MCP"] as const)(
   "filters replayed lifecycle milestones before the observation window through %s",
   async (surface, { cli }) => {
@@ -34,6 +59,9 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
                 timestamp: 19,
               },
             },
+            ...[19, 21].map((timestamp) =>
+              redirectRequest(origin, command.sessionId, timestamp),
+            ),
             {
               method: "Page.navigatedWithinDocument",
               sessionId: command.sessionId,
@@ -105,6 +133,22 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
     const normalized = z
       .object({ normalized_result: webObservationSessionSchema })
       .parse(sourceEvidence).normalized_result;
+    expect(normalized.timeline).toContainEqual(
+      expect.objectContaining({
+        type: "redirect",
+        timestamp: 21,
+        request_id: "current-window-redirect",
+        redirect_response: {
+          url: `${browser.allowedOrigin}/prior-hop-21`,
+          status: 302,
+          destination_scope: "approved",
+        },
+      }),
+    );
+    expect(JSON.stringify(sourceEvidence)).not.toContain("prior-hop-19");
+    expect(JSON.stringify(sourceEvidence)).not.toContain(
+      "excluded-response-header",
+    );
     expect(normalized.timeline).toContainEqual(
       expect.objectContaining({
         type: "lifecycle",

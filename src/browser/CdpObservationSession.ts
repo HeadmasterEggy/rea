@@ -67,6 +67,7 @@ interface TimelineEntryOptions {
   readonly destinationScope?: TimelineEvent["destination_scope"];
   readonly requestId?: string | null;
   readonly detail?: string | null;
+  readonly redirectResponse?: TimelineEvent["redirect_response"];
 }
 
 /** Observe external user actions without rejecting approved same-origin navigation. */
@@ -516,6 +517,21 @@ class TimelineCapture {
     if (!eventTime.keep) return;
     const rawUrl = facts.request?.url;
     const destination = scopedUrl(rawUrl, this.allowedOrigins);
+    const response = facts.redirect.response;
+    const prior =
+      response.url === undefined
+        ? null
+        : scopedUrl(response.url, this.allowedOrigins);
+    const approvedPrior = prior?.scope === "approved";
+    if (!approvedPrior)
+      this.completeness.exclude(
+        "timeline",
+        prior === null
+          ? "unattributed_origin"
+          : prior.scope === "outside_policy"
+            ? "disallowed_origin"
+            : "unsupported_url",
+      );
     this.#add({
       type: "redirect",
       params: facts.source ?? {},
@@ -525,6 +541,11 @@ class TimelineCapture {
       rawUrl: rawUrl ?? null,
       requestId: facts.requestId,
       detail: null,
+      redirectResponse: {
+        url: approvedPrior ? prior.url : null,
+        status: approvedPrior ? (response.status ?? null) : null,
+        destination_scope: prior?.scope ?? null,
+      },
     });
     if (!this.#hasObservedUrl(rawUrl)) return;
     this.#stopIfOutOfScope(destination);
@@ -712,6 +733,9 @@ class TimelineCapture {
       url: destination?.scope === "approved" ? destination.url : null,
       destination_scope: options.destinationScope ?? destination?.scope ?? null,
       detail,
+      ...(options.redirectResponse === undefined
+        ? {}
+        : { redirect_response: options.redirectResponse }),
     });
   }
 }
